@@ -66,6 +66,41 @@ combined = table2_long.merge(
     how="outer",
 )
 
+# Tag each column with its source table
+combined = combined.rename(columns={
+    # Table2 source columns
+    "Flooding Source":             "Table2_Flooding Source",
+    "Location":                    "Table2_Location",
+    "Drainage Area (square miles)":"Table2_Drainage Area (square miles)",
+    "Table2_Label":                "Table2_Label",
+    "Table2_cfs":                  "Table2_cfs",
+    # StreamStats source columns
+    "DRNAREA":                     "SS_DRNAREA",
+    "AreaSqMi_Characteristics":    "SS_AreaSqMi_Characteristics",
+    "AreaSqMi_FlowStats":          "SS_AreaSqMi_FlowStats",
+    "StatName":                    "SS_StatName",
+    "Value":                       "SS_Value",
+    "Units":                       "SS_Units",
+    "WarningMsg":                  "SS_WarningMsg",
+})
+
+final_cols = [
+    "Flood_ID",
+    "Table2_Flooding Source",
+    "Table2_Location",
+    "Table2_Drainage Area (square miles)",
+    "SS_DRNAREA",
+    "SS_AreaSqMi_Characteristics",
+    "SS_AreaSqMi_FlowStats",
+    "Table2_Label",
+    "Table2_cfs",
+    "SS_StatName",
+    "SS_Value",
+    "SS_Units",
+    "SS_WarningMsg",
+]
+combined = combined[final_cols].sort_values("Flood_ID")
+
 out_path2 = "table2_streamstats_merged.csv"
 combined.to_csv(out_path2, index=False)
 print(f"Wrote {len(combined)} rows to {out_path2}")
