@@ -25,7 +25,7 @@ merged = (
 merged = merged[["Name", "AreaSqMi_Characteristics", "AreaSqMi", "StatName", "Value", "Units", "WarningMsg", "DRNAREA"]]
 merged = merged.rename(columns={"AreaSqMi": "AreaSqMi_FlowStats"})
 
-out_path = "table2_combined.csv"
+out_path = "streamstats_merged.csv"
 merged.to_csv(out_path, index=False)
 print(f"Wrote {len(merged)} rows to {out_path}")
 print(merged.head())
