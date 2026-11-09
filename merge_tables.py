@@ -1,3 +1,4 @@
+import csv
 import pandas as pd
 
 chars = pd.read_csv("data_raw/Characteristics.csv", encoding="utf-8-sig")
@@ -28,79 +29,54 @@ merged = merged.rename(columns={"AreaSqMi": "AreaSqMi_FlowStats", "Name": "Flood
 out_path = "streamstats_merged.csv"
 merged.to_csv(out_path, index=False)
 print(f"Wrote {len(merged)} rows to {out_path}")
-print(merged.head())
 
-# --- Join streamstats with Table2 discharge summary ---
+# --- Wide-format StreamStats output (one row per watershed) ---
 
-table2 = pd.read_excel("data_raw/Table2_summary_of_discharges.xlsx")
-
-# Keep only the relevant Table2 columns
-aep_cols = [c for c in table2.columns if "Annual-Chance" in c]
-table2_slim = table2[
-    ["Flood_ID", "Flooding Source", "Location", "Drainage Area (square miles)"] + aep_cols
+RETURN_INTERVALS = [
+    ("2-yr",   "50-percent AEP flood"),
+    ("5-yr",   "20-percent AEP flood"),
+    ("10-yr",  "10-percent AEP flood"),
+    ("25-yr",  "4-percent AEP flood"),
+    ("50-yr",  "2-percent AEP flood"),
+    ("100-yr", "1-percent AEP flood"),
+    ("200-yr", "0.5-percent AEP flood"),
+    ("500-yr", "0.2-percent AEP flood"),
 ]
+stat_names = {stat for _, stat in RETURN_INTERVALS}
 
-# Melt AEP discharge columns to long format
-table2_long = table2_slim.melt(
-    id_vars=["Flood_ID", "Flooding Source", "Location", "Drainage Area (square miles)"],
-    var_name="Table2_Label",
-    value_name="Table2_cfs",
-)
+flow_wide = flow[flow["StatName"].isin(stat_names)][
+    ["Name", "StatName", "Value", "PIl", "PIu", "SEp"]
+].copy()
+gws_wide = gws[["Name", "DRNAREA", "WarningMsg"]].drop_duplicates("Name")
+flow_wide = flow_wide.merge(gws_wide, on="Name", how="left")
 
-# Map Table2 column labels to StreamStats StatName for joining;
-# "1-Percent Plus Annual-Chance" has no direct SS equivalent and maps to NaN
-label_to_statname = {
-    "0.2-Percent-Annual-Chance (cfs)": "0.2-percent AEP flood",
-    "1-Percent-Annual-Chance (cfs)":   "1-percent AEP flood",
-    "2-Percent-Annual-Chance (cfs)":   "2-percent AEP flood",
-    "4-Percent-Annual-Chance (cfs)":   "4-percent AEP flood",
-    "10-Percent-Annual-Chance (cfs)":  "10-percent AEP flood",
-}
-table2_long["StatName"] = table2_long["Table2_Label"].map(label_to_statname)
+stat_to_ri = {stat: ri for ri, stat in RETURN_INTERVALS}
+flow_wide["RI"] = flow_wide["StatName"].map(stat_to_ri)
 
-# Outer join preserves all AEP rows from both sources;
-# Table2-only rows (1-Percent Plus) and SS-only rows (0.5%, 20%, 50%) get NaN in unmatched columns
-combined = table2_long.merge(
-    merged,
-    on=["Flood_ID", "StatName"],
-    how="outer",
-)
+header1 = ["Flood ID", "SS_DRNAREA"]
+header2 = ["", ""]
+for ri, stat in RETURN_INTERVALS:
+    header1 += [ri, "", "", "", ""]
+    header2 += [stat, "PIL", "PIU", "SEp", "SS_Warnings"]
 
-# Tag each column with its source table
-combined = combined.rename(columns={
-    # Table2 source columns
-    "Flooding Source":             "Table2_Flooding Source",
-    "Location":                    "Table2_Location",
-    "Drainage Area (square miles)":"Table2_Drainage Area (square miles)",
-    "Table2_Label":                "Table2_Label",
-    "Table2_cfs":                  "Table2_cfs",
-    # StreamStats source columns
-    "DRNAREA":                     "SS_DRNAREA",
-    "AreaSqMi_Characteristics":    "SS_AreaSqMi_Characteristics",
-    "AreaSqMi_FlowStats":          "SS_AreaSqMi_FlowStats",
-    "StatName":                    "SS_StatName",
-    "Value":                       "SS_Value",
-    "Units":                       "SS_Units",
-    "WarningMsg":                  "SS_WarningMsg",
-})
+data_rows = []
+for name in sorted(flow_wide["Name"].unique()):
+    ws = flow_wide[flow_wide["Name"] == name]
+    drnarea = ws["DRNAREA"].iloc[0] if len(ws) else ""
+    row = [name, drnarea]
+    for ri, _ in RETURN_INTERVALS:
+        ri_row = ws[ws["RI"] == ri]
+        if len(ri_row):
+            r = ri_row.iloc[0]
+            row += [r["Value"], r["PIl"], r["PIu"], r["SEp"], r["WarningMsg"]]
+        else:
+            row += ["", "", "", "", ""]
+    data_rows.append(row)
 
-final_cols = [
-    "Flood_ID",
-    "Table2_Flooding Source",
-    "Table2_Location",
-    "Table2_Drainage Area (square miles)",
-    "SS_DRNAREA",
-    "SS_AreaSqMi_Characteristics",
-    "SS_AreaSqMi_FlowStats",
-    "Table2_Label",
-    "Table2_cfs",
-    "SS_StatName",
-    "SS_Value",
-    "SS_Units",
-    "SS_WarningMsg",
-]
-combined = combined[final_cols].sort_values("Flood_ID")
-
-out_path2 = "table2_streamstats_merged.csv"
-combined.to_csv(out_path2, index=False)
-print(f"Wrote {len(combined)} rows to {out_path2}")
+wide_path = "streamstats_wide.csv"
+with open(wide_path, "w", newline="", encoding="utf-8") as f:
+    writer = csv.writer(f)
+    writer.writerow(header1)
+    writer.writerow(header2)
+    writer.writerows(data_rows)
+print(f"Wrote {len(data_rows)} watersheds to {wide_path}")
